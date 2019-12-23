@@ -1,21 +1,15 @@
 package org.sigurdthor.ghrank
 
-import java.nio.ByteBuffer
-
 import io.circe.Decoder
 import io.circe.generic.auto._
-import io.circe.parser._
-import org.http4s.EntityDecoder
 import org.http4s.circe.jsonOf
+import org.http4s.client.Client
+import org.http4s.{EntityDecoder, Uri}
 import org.sigurdthor.ghrank.GithubRank.AppEnv
-import org.sigurdthor.ghrank.model.{Contributor, Repository}
-import sttp.client.{SttpBackend, _}
-import sttp.model.Uri
+import org.sigurdthor.ghrank.model.GithubError.MalformedUrl
+import org.sigurdthor.ghrank.model.{Contributor, GithubError, Owner, Repository}
 import zio.interop.catz._
-import zio.stream.{Stream, ZStream}
-import zio.{RIO, Task, ZIO}
-
-import scala.concurrent.duration.Duration
+import zio.{IO, Task, ZIO}
 
 
 trait GithubClient {
@@ -24,61 +18,44 @@ trait GithubClient {
 
 object GithubClient {
 
-  type ZioSttpBackend = SttpBackend[Task, Stream[Throwable, ByteBuffer], Nothing]
-
   trait Service[R] {
-    def organisationRepos(org: String): ZIO[AppEnv, Throwable, ZStream[R, Throwable, Repository]]
+    def organisationRepos(org: String): IO[GithubError, Seq[Repository]]
 
-    def repoContributors(repoName: String): ZIO[AppEnv, Throwable, ZStream[R, Throwable, Contributor]]
+    def repoContributors(owner: Owner, repoName: String): IO[GithubError, Seq[Contributor]]
   }
 
   trait Live extends GithubClient {
 
-    implicit val backend: RIO[AppEnv, ZioSttpBackend]
+    def client: Client[Task]
 
     implicit def entityDecoder[A](implicit decoder: Decoder[A]): EntityDecoder[Task, A] = jsonOf[Task, A]
 
     val githubClient: GithubClient.Service[AppEnv] = new Service[AppEnv] {
-      override def organisationRepos(org: String): ZIO[AppEnv, Throwable, ZStream[AppEnv, Throwable, Repository]] =
-        performRequest[Repository](uri"https://api.github.com/users/$org/repos")
+      override def organisationRepos(org: String): IO[GithubError, Seq[Repository]] =
+        performRequest[Repository](s"https://api.github.com/users/$org/repos")
 
-      override def repoContributors(repoName: String): ZIO[AppEnv, Throwable, ZStream[AppEnv, Throwable, Contributor]] =
-        performRequest[Contributor](uri"https://api.github.com/repo/$repoName/contributors")
+      override def repoContributors(owner: Owner, repoName: String): IO[GithubError, Seq[Contributor]] =
+        performRequest[Contributor](s"https://api.github.com/repos/${owner.login}/$repoName/contributors")
 
-      private def performRequest[T](uri: Uri)(implicit d: Decoder[T]) = {
-        backend.flatMap { implicit b =>
-          val responseIO = basicRequest
-            .get(uri)
-            .response(asStream[Stream[Throwable, ByteBuffer]])
-            .readTimeout(Duration.Inf)
-            .send()
+      def performRequest[T](uri: String)(implicit d: Decoder[T]): IO[GithubError, Seq[T]] = {
+        def call(uri: Uri): IO[GithubError, Seq[T]] = client
+          .expect[Seq[T]](uri)
+          .foldM(_ => ZIO.succeed(Seq.empty[T]), ZIO.succeed)
 
-          responseIO.map { response =>
-            response.body match {
-              case Right(stream) =>
-                stream
-                  .flatMap { s =>
-                    decode[Seq[T]](new String(s.array(), "UTF-8")) match {
-                      case Right(value) => Stream.fromIterable(value)
-                      case Left(error) => Stream.fail(new Exception(error))
-                    }
-                  }
-              case Left(error) => Stream.fail(new Exception(error))
-            }
-          }
-        }
+        println(s"Perform request $uri")
+        Uri
+          .fromString(uri)
+          .fold(_ => IO.fail(MalformedUrl(uri)), call)
       }
     }
   }
 
   object factory {
-    def organizationRepos(org: String): ZIO[AppEnv, Throwable, ZStream[AppEnv, Throwable, Repository]] =
-      ZIO.access[GithubClient](_.githubClient.organisationRepos(org))
-        .flatten
+    def organizationRepos(org: String): ZIO[AppEnv, Throwable, Seq[Repository]] =
+      ZIO.access[GithubClient](_.githubClient.organisationRepos(org)).flatten
 
-    def repoContributors(repo: String): ZIO[AppEnv, Throwable, ZStream[AppEnv, Throwable, Contributor]] =
-      ZIO.access[GithubClient](_.githubClient.repoContributors(repo))
-        .flatten
+    def repoContributors(owner: Owner, repo: String): ZIO[AppEnv, Throwable, Seq[Contributor]] =
+      ZIO.access[GithubClient](_.githubClient.repoContributors(owner, repo)).flatten
   }
 
 }

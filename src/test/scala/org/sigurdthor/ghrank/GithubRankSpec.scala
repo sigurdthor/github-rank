@@ -1,32 +1,39 @@
 package org.sigurdthor.ghrank
 
-import org.http4s._
-import zio._
+import io.circe.literal._
+import org.http4s.circe._
+import org.http4s.{Status, _}
+import org.sigurdthor.ghrank.GithubRank.AppTask
+import org.sigurdthor.ghrank.utils.RequestHelper._
+import org.sigurdthor.ghrank.testenv.TestEnvironment._
 import zio.interop.catz._
-import zio.test.{DefaultRunnableSpec, Predicate, assert, fail, suite, testM}
+import zio.test.{DefaultRunnableSpec, suite, testM}
+
 
 object GithubRankSpec extends DefaultRunnableSpec(
+
   suite("routes suite")(
-    testM("root request returns Ok") {
-      val io: Task[Response[Task]] = GithubRank.helloService.run(Request[Task](Method.GET, Uri.uri("/")))
-      io.fold(
-        e => fail(Cause.fail(e)),
-        s => assert(s.status, Predicate.equals(Status.Ok)))
-    },
-    testM("unmapped request returns not found") {
-      val io: Task[Response[Task]] = GithubRank.helloService.run(Request[Task](Method.GET, Uri.uri("/a")))
-      io.fold(
-        e => fail(Cause.fail(e)),
-        s => assert(s.status, Predicate.equals(Status.NotFound))
-      )
-    },
-    testM("root request body returns hello!") {
-      (for{
-        request <- GithubRank.helloService.run(Request[Task](Method.GET, Uri.uri("/")))
-        body <- request.body.compile.toVector.map(x => x.map(_.toChar).mkString(""))
-      }yield body)
-        .fold(
-          e => fail(Cause.fail(e)),
-          s => assert(s, Predicate.equals("hello!")))
+    testM("contributors request returns list of contributors") {
+      withEnv {
+        val req = request[AppTask](Method.GET, "/org/sigurdthor/contributors")
+
+        checkRequest(
+          Routes.githubService.run(req),
+          Status.Ok,
+          Some(
+            json"""
+           [
+            {
+              "name" : "jack",
+              "contributions" : 16
+            },
+            {
+              "name" : "john",
+              "contributions" : 10
+            }
+           ]
+                """)
+        )
+      }
     }
   ))
