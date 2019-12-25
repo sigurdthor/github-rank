@@ -20,8 +20,9 @@ object GithubRank extends zio.App {
 
   def run(args: List[String]) = {
     val server = for {
+      maybeToken <- system.env("GH_TOKEN")
       client <- buildHttpClient
-      _ <- buildHttpServer(client)
+      _ <- buildHttpServer(client, maybeToken)
     } yield ()
     server.foldM(err => putStrLn(s"execution failed with $err") *> ZIO.succeed(1), _ => ZIO.succeed(0))
   }
@@ -37,7 +38,7 @@ object GithubRank extends zio.App {
           .resource
       }
 
-  def buildHttpServer(http4sClient: Resource[Task, Client[Task]]) =
+  def buildHttpServer(http4sClient: Resource[Task, Client[Task]], maybeAuthToken: Option[String]) =
     http4sClient.use { httpClient =>
       ZIO.runtime[AppEnv]
         .flatMap { implicit rts =>
@@ -47,8 +48,11 @@ object GithubRank extends zio.App {
             .serve
             .compile
             .drain
-        }.provide(new GithubClient.Live with Console.Live with Clock.Live with ContributorMiddleware.Live {
-        override def client: Client[Task] = httpClient
-      })
+        }.provide(
+        new GithubClient.Live with Console.Live with Clock.Live with ContributorMiddleware.Live {
+          override def client: Client[Task] = httpClient
+
+          override def maybeToken: Option[String] = maybeAuthToken
+        })
     }
 }

@@ -24,11 +24,11 @@ object GithubRankSpec extends DefaultRunnableSpec(
             json"""
            [
             {
-              "name" : "jack",
+              "login" : "jack",
               "contributions" : 16
             },
             {
-              "name" : "john",
+              "login" : "john",
               "contributions" : 10
             }
            ]

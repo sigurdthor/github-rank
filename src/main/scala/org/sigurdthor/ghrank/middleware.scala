@@ -25,7 +25,7 @@ object middleware {
           contributors <- ZIO.foreachPar(repositories)(r => repoContributors(r.owner, r.name))
         } yield contributors
           .flatten
-          .groupBy(_.name)
+          .groupBy(_.login)
           .view
           .mapValues(_.map(_.contributions).sum)
           .map(t => Contributor(t._1, t._2))
@@ -41,5 +41,4 @@ object middleware {
     def retrieveContributors(repoName: String): ZIO[AppEnv, Throwable, Seq[Contributor]] =
       ZIO.access[ContributorMiddleware](_.contributorService.retrieveContributors(repoName)).flatten
   }
-
 }

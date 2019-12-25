@@ -3,7 +3,7 @@ package org.sigurdthor.ghrank
 object model {
 
   case class Repository(name: String, owner: Owner)
-  case class Contributor(name: String, contributions: Int)
+  case class Contributor(login: String, contributions: Int)
   case class Owner(login: String)
 
 

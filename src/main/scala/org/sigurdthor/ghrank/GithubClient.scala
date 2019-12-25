@@ -2,9 +2,13 @@ package org.sigurdthor.ghrank
 
 import io.circe.Decoder
 import io.circe.generic.auto._
+import izumi.logstage.api.IzLogger
+import izumi.logstage.api.Log.Level.Trace
+import izumi.logstage.sink.ConsoleSink
+import logstage.{LogBIO, LogstageZIO}
 import org.http4s.circe.jsonOf
 import org.http4s.client.Client
-import org.http4s.{EntityDecoder, Uri}
+import org.http4s._
 import org.sigurdthor.ghrank.GithubRank.AppEnv
 import org.sigurdthor.ghrank.model.GithubError.MalformedUrl
 import org.sigurdthor.ghrank.model.{Contributor, GithubError, Owner, Repository}
@@ -28,6 +32,12 @@ object GithubClient {
 
     def client: Client[Task]
 
+    def maybeToken: Option[String]
+
+    lazy val textSink = ConsoleSink.text(colored = true)
+    lazy val logger: IzLogger = IzLogger(Trace, List(textSink))
+    lazy val log: LogBIO[IO] = LogstageZIO.withFiberId(logger)
+
     implicit def entityDecoder[A](implicit decoder: Decoder[A]): EntityDecoder[Task, A] = jsonOf[Task, A]
 
     val githubClient: GithubClient.Service[AppEnv] = new Service[AppEnv] {
@@ -38,11 +48,18 @@ object GithubClient {
         performRequest[Contributor](s"https://api.github.com/repos/${owner.login}/$repoName/contributors")
 
       def performRequest[T](uri: String)(implicit d: Decoder[T]): IO[GithubError, Seq[T]] = {
-        def call(uri: Uri): IO[GithubError, Seq[T]] = client
-          .expect[Seq[T]](uri)
-          .foldM(_ => ZIO.succeed(Seq.empty[T]), ZIO.succeed)
+        def call(uri: Uri): IO[GithubError, Seq[T]] = {
 
-        println(s"Perform request $uri")
+          val headers = maybeToken match {
+            case Some(token) => Headers.of(Header("Authorization", s"token $token"))
+            case None => Headers.empty
+          }
+
+          client
+            .expect[Seq[T]](Request[Task](Method.GET, uri, headers = headers))
+            .foldM(ex => log.error(s"Request error: ${ex.getMessage}") *> ZIO.succeed(Seq.empty[T]), ZIO.succeed)
+        }
+
         Uri
           .fromString(uri)
           .fold(_ => IO.fail(MalformedUrl(uri)), call)
