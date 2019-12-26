@@ -35,14 +35,14 @@ object GithubClient {
     def maybeToken: Option[String]
 
     lazy val textSink = ConsoleSink.text(colored = true)
-    lazy val logger: IzLogger = IzLogger(Trace, List(textSink))
-    lazy val log: LogBIO[IO] = LogstageZIO.withFiberId(logger)
+    lazy val izLogger: IzLogger = IzLogger(Trace, List(textSink))
+    lazy val log: LogBIO[IO] = LogstageZIO.withFiberId(izLogger)
 
     implicit def entityDecoder[A](implicit decoder: Decoder[A]): EntityDecoder[Task, A] = jsonOf[Task, A]
 
     val githubClient: GithubClient.Service[AppEnv] = new Service[AppEnv] {
       override def organisationRepos(org: String): IO[GithubError, Seq[Repository]] =
-        performRequest[Repository](s"https://api.github.com/users/$org/repos")
+        performRequest[Repository](s"https://api.github.com/orgs/$org/repos?per_page=100")
 
       override def repoContributors(owner: Owner, repoName: String): IO[GithubError, Seq[Contributor]] =
         performRequest[Contributor](s"https://api.github.com/repos/${owner.login}/$repoName/contributors")
@@ -57,7 +57,7 @@ object GithubClient {
 
           client
             .expect[Seq[T]](Request[Task](Method.GET, uri, headers = headers))
-            .foldM(ex => log.error(s"Request error: ${ex.getMessage}") *> ZIO.succeed(Seq.empty[T]), ZIO.succeed)
+            .foldM(_ => /*log.error(s"Request error: ${ex.getMessage}") *>*/ ZIO.succeed(Seq.empty[T]), ZIO.succeed)
         }
 
         Uri

@@ -1,6 +1,6 @@
 val http4sVersion = "0.21.0-SNAPSHOT"
 val `zio-version` = "1.0.0-RC17"
-val izumi_version = "0.10.0-M8-ZIORC16"
+val izumi_version = "0.10.0-M10-ZIORC16"
 val circeVersion = "0.12.3"
 val SilencerVersion = "1.4.4"
 
